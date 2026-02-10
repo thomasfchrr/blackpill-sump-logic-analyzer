@@ -1,0 +1,104 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "STM32: Build (Clean)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/Cube_demo/USB_Test_Project/build.ps1",
+        "-Clean"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "STM32: Build (Incremental)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/Cube_demo/USB_Test_Project/build.ps1"
+      ],
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "STM32: Flash (J-Link)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/Cube_demo/USB_Test_Project/flash_jlink.ps1",
+        "-Run"
+      ],
+      "dependsOn": [
+        "STM32: Build (Incremental)"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "Python: Local Parser Self-Test",
+      "type": "shell",
+      "command": "py",
+      "args": [
+        "-3",
+        "-c",
+        "import sys; sys.path.insert(0, r'${workspaceFolder}/Python_Test'); import main; main.run_local_parser_self_tests()"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "SUMP: Smoke-Test",
+      "type": "shell",
+      "command": "py",
+      "args": [
+        "-3",
+        "${workspaceFolder}/Python_Test/sump_smoke_test.py"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "USB: E2E Self-Test (Build+Flash+Host)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/run_usb_tests.ps1"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "USB: E2E Benchmark (Build+Flash+Host)",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}/run_usb_tests.ps1",
+        "-Bench",
+        "-Duration",
+        "8",
+        "-Payload",
+        "256"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

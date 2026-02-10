@@ -1,0 +1,30 @@
+# File: .gitignore
+# Description: Ignore generated artifacts while preserving CubeIDE build metadata files required for reproducible builds.
+# Author: Thomas Faucherre
+# Created: 2026-02-10
+
+# Python
+__pycache__/
+*.pyc
+
+# VSCode temporary
+.vscode/*.log
+
+# Temporary folders
+_refs/
+
+# STM32 build artifacts (keep generated makefiles)
+Cube_demo/USB_Test_Project/Debug/**/*.o
+Cube_demo/USB_Test_Project/Debug/**/*.d
+Cube_demo/USB_Test_Project/Debug/**/*.su
+Cube_demo/USB_Test_Project/Debug/**/*.cyclo
+Cube_demo/USB_Test_Project/Debug/*.elf
+Cube_demo/USB_Test_Project/Debug/*.map
+Cube_demo/USB_Test_Project/Debug/*.list
+!Cube_demo/USB_Test_Project/Debug/objects.list
+Cube_demo/USB_Test_Project/Debug/default.size.stdout
+Cube_demo/USB_Test_Project/Debug/gdbClient_*.log
+
+# Misc
+*.tmp
+*.bak

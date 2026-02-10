@@ -1,0 +1,9 @@
+{
+  "blackpill.gdbPath": "C:/ST/STM32CubeIDE_2.0.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.100.202509120712/tools/bin/arm-none-eabi-gdb.exe",
+  "blackpill.jlinkGdbServerPath": "C:/ST/STM32CubeIDE_2.0.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.jlink.win32_2.5.100.202509120932/tools/bin/JLinkGDBServerCL.exe",
+  "cortex-debug.armToolchainPath": "C:/ST/STM32CubeIDE_2.0.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.win32_1.0.100.202509120712/tools/bin",
+  "cortex-debug.JLinkGDBServerPath": "C:/ST/STM32CubeIDE_2.0.0/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.jlink.win32_2.5.100.202509120932/tools/bin/JLinkGDBServerCL.exe",
+  "files.associations": {
+    "usbd_cdc_if.h": "c"
+  }
+}

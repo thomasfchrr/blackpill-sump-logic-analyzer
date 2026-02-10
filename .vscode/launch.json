@@ -1,0 +1,97 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "STM32Cube: Launch J-Link GDB Server (ST Extension)",
+      "type": "jlinkgdbtarget",
+      "request": "launch",
+      "origin": "snippet",
+      "cwd": "${workspaceFolder}",
+      "preBuild": "",
+      "runEntry": "main",
+      "gdb": "${config:blackpill.gdbPath}",
+      "program": "${workspaceFolder}/Cube_demo/USB_Test_Project/Debug/USB_Test_Project.elf",
+      "deviceName": "STM32F411CE",
+      "serverExe": "${config:blackpill.jlinkGdbServerPath}",
+      "serverDevice": "STM32F411CE",
+      "serverInterface": "SWD",
+      "serverSpeed": "4000",
+      "serverHost": "localhost",
+      "serverPort": "61234",
+      "logFile": "${workspaceFolder}/Cube_demo/USB_Test_Project/Debug/gdbClient_jlink_st_extension.log",
+      "imagesAndSymbols": [
+        {
+          "imageFileName": "${workspaceFolder}/Cube_demo/USB_Test_Project/Debug/USB_Test_Project.elf",
+          "symbolFileName": "${workspaceFolder}/Cube_demo/USB_Test_Project/Debug/USB_Test_Project.elf"
+        }
+      ]
+    },
+    {
+      "name": "STM32Cube: Attach J-Link GDB Server (ST Extension)",
+      "type": "jlinkgdbtarget",
+      "request": "attach",
+      "cwd": "${workspaceFolder}",
+      "gdb": "${config:blackpill.gdbPath}",
+      "program": "${workspaceFolder}/Cube_demo/USB_Test_Project/Debug/USB_Test_Project.elf",
+      "deviceName": "STM32F411CE",
+      "serverHost": "localhost",
+      "serverPort": "2331",
+      "imagesAndSymbols": [
+        {
+          "symbolFileName": "${workspaceFolder}/Cube_demo/USB_Test_Project/Debug/USB_Test_Project.elf"
+        }
+      ]
+    },
+    {
+      "name": "STM32 BlackPill J-Link (Launch)",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "jlink",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/Cube_demo/USB_Test_Project/Debug/USB_Test_Project.elf",
+      "device": "STM32F411CE",
+      "interface": "swd",
+      "speed": 4000,
+      "runToEntryPoint": "main",
+      "preLaunchTask": "STM32: Build (Incremental)",
+      "serverpath": "${config:blackpill.jlinkGdbServerPath}",
+      "gdbPath": "${config:blackpill.gdbPath}",
+      "overrideLaunchCommands": [
+        "monitor reset",
+        "load",
+        "monitor reset",
+        "monitor halt",
+        "break main",
+        "continue"
+      ],
+      "showDevDebugOutput": "raw"
+    },
+    {
+      "name": "STM32 BlackPill J-Link (Attach localhost:2331)",
+      "type": "cortex-debug",
+      "request": "attach",
+      "servertype": "external",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/Cube_demo/USB_Test_Project/Debug/USB_Test_Project.elf",
+      "device": "STM32F411CE",
+      "gdbTarget": "localhost:2331",
+      "gdbPath": "${config:blackpill.gdbPath}",
+      "showDevDebugOutput": "raw"
+    },
+    {
+      "name": "STM32 BlackPill ST-Link (Template)",
+      "type": "cortex-debug",
+      "request": "launch",
+      "servertype": "stlink",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/Cube_demo/USB_Test_Project/Debug/USB_Test_Project.elf",
+      "device": "STM32F411CE",
+      "interface": "swd",
+      "runToEntryPoint": "main",
+      "preLaunchTask": "STM32: Build (Incremental)",
+      "serverpath": "${env:STLINK_GDB_SERVER}",
+      "gdbPath": "${config:blackpill.gdbPath}",
+      "showDevDebugOutput": "raw"
+    }
+  ]
+}
