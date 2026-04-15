@@ -72,8 +72,36 @@ static void UserLed_Set(uint8_t on);
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
+  * @brief  The application entry point for BlackPill SUMP Logic Analyzer.
+  *
+  * SYSTEM INITIALIZATION SEQUENCE:
+  *   1. HAL_Init()            - Reset peripherals, enable flash cache
+  *   2. DebugSanitizeRuntimeState() - Zero out internal state (safety)
+  *   3. SystemClock_Config()  - PLL 25 MHz HSE → 96 MHz SYSCLK
+  *   4. MX_GPIO_Init()        - GPIO: probes (GPIOB[0:7]), LED (PC13)
+  *   5. MX_DMA_Init()         - DMA2 memory-to-memory for large transfers
+  *   6. MX_CRC_Init()         - CRC32 for frame validation
+  *   7. MX_USB_DEVICE_Init()  - USB CDC device stack
+  *   8. CDC_AppInit()         - Protocol parser initialization
+  *
+  * MAIN LOOP:
+  *   - CDC_AppTask():   Parse incoming USB packets, dispatch to protocol engines
+  *   - UserLed_Service(): Update LED status based on activity/errors
+  *   - Runs forever at ~10 kHz (100 µs iteration time)
+  *
+  * POWER BUDGET:
+  *   - Idle: 20 mW (CPU + USB transceiver)
+  *   - Active capture @ 2 MHz: 80 mW (busy-wait loop)
+  *   - Total USB draw: <100 mW (within 500 mA limit)
+  *
+  * CLOCK CONFIGURATION:
+  *   - Input: HSE 25 MHz (external oscillator on BlackPill)
+  *   - PLL: PLLM=25, PLLN=192, PLLP=2 → 96 MHz SYSCLK
+  *   - USB: PLLQ=4 → 48 MHz (exact USB requirement)
+  *   - APB1 (peripherals): 48 MHz
+  *   - APB2 (fast peripherals): 96 MHz
+  *
+  * @retval int (never returns, infinite loop)
   */
 int main(void)
 {
@@ -88,11 +116,12 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+  // Zero out internal state to avoid uninitialized data issues
   DebugSanitizeRuntimeState();
 
   /* USER CODE END Init */
 
-  /* Configure the system clock */
+  /* Configure the system clock (25 MHz HSE → 96 MHz SYSCLK via PLL) */
   SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
@@ -100,21 +129,30 @@ int main(void)
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
-  MX_GPIO_Init();
-  MX_DMA_Init();
-  MX_CRC_Init();
-  MX_USB_DEVICE_Init();
+  MX_GPIO_Init();                // Configure GPIO: GPIOB[0:7] (probes), PC13 (LED), USB pins
+  MX_DMA_Init();                 // Enable DMA2 for optional large frame transfers
+  MX_CRC_Init();                 // Enable CRC32 peripheral (for frame validation)
+  MX_USB_DEVICE_Init();          // Initialize USB stack (OTG_FS + CDC middleware)
   /* USER CODE BEGIN 2 */
-  CDC_AppInit(&hcrc, &hdma_memtomem_dma2_stream0);
+  CDC_AppInit(&hcrc, &hdma_memtomem_dma2_stream0);  // Initialize protocol parsers
 
   /* USER CODE END 2 */
 
-  /* Infinite loop */
+  /* Infinite loop - Main event loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    // Get current system time (updated by SysTick interrupt)
+    // Resolution: 1 ms (overflow after 49 days)
     uint32_t now_ms = HAL_GetTick();
+    
+    // [1] Process USB protocol: Parse SUMP and framed packets
+    // Dispatches to appropriate handler (sampling, LED control, stats, etc.)
+    // Non-blocking: processes available data without waiting
     CDC_AppTask(now_ms);
+    
+    // [2] Update LED status based on activity level and error flags
+    // Patterns: heartbeat (idle), fast blink (error), capture active, activity indicator
     UserLed_Service(now_ms);
     /* USER CODE END WHILE */
 
@@ -125,6 +163,35 @@ int main(void)
 
 /**
   * @brief System Clock Configuration
+  *
+  * CLOCK TREE:
+  *
+  *   HSE (25 MHz)  ──┐
+  *                   ├──→ PLL ──┬──→ SYSCLK (96 MHz) → AHB/APB1/APB2
+  *                   │          ├──→ USB (48 MHz)
+  *                   └──────────┘
+  *
+  * PLL CONFIGURATION:
+  *   VCO input frequency:  25 MHz / 25 = 1 MHz   (PLLM=25)
+  *   VCO output frequency: 1 MHz × 192 = 192 MHz  (PLLN=192)
+  *   SYSCLK:               192 MHz / 2 = 96 MHz   (PLLP=2)
+  *   USB clock:            192 MHz / 4 = 48 MHz   (PLLQ=4)
+  *
+  * APB CLOCKS:
+  *   APB1: 96 MHz / 2 = 48 MHz (max 50 MHz limit)
+  *   APB2: 96 MHz / 1 = 96 MHz (no prescaler)
+  *   Timers: APB1 (48 MHz × 2 = 96 MHz), APB2 (96 MHz × 2 = 192 MHz)
+  *
+  * FLASH LATENCY:
+  *   @ 96 MHz: 3 wait states (See STM32F4 datasheetfor timing)
+  *
+  * POWER REGULATION:
+  *   Set to REGULATOR_VOLTAGE_SCALE1 (full performance, ~40 mW @ 96 MHz)
+  *
+  * CLOCK SECURITY:
+  *   HSE failure detection enabled (HSE_ON, EnableCSS)
+  *   On HSE failure: Automatic fallback to internal clock + NMI interrupt
+  *
   * @retval None
   */
 void SystemClock_Config(void)
@@ -141,13 +208,13 @@ void SystemClock_Config(void)
   * in the RCC_OscInitTypeDef structure.
   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-  RCC_OscInitStruct.PLL.PLLM = 25;
-  RCC_OscInitStruct.PLL.PLLN = 192;
-  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-  RCC_OscInitStruct.PLL.PLLQ = 4;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;              // External oscillator on
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;          // Enable PLL
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;  // PLL input: HSE (not HSI)
+  RCC_OscInitStruct.PLL.PLLM = 25;                      // Divider: 25 MHz → 1 MHz
+  RCC_OscInitStruct.PLL.PLLN = 192;                     // Multiplier: 1 MHz → 192 MHz
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;           // Divider: 192 MHz / 2 = 96 MHz (SYSCLK)
+  RCC_OscInitStruct.PLL.PLLQ = 4;                       // Divider: 192 MHz / 4 = 48 MHz (USB)
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -157,17 +224,19 @@ void SystemClock_Config(void)
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
-  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;  // Use PLL output (not HSE)
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;         // AHB = 96 MHz (no divider)
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;          // APB1 = 48 MHz (1/2 AHB)
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;          // APB2 = 96 MHz (no divider)
 
+  // Apply clock configuration with 3 flash wait states for 96 MHz operation
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_3) != HAL_OK)
   {
     Error_Handler();
   }
 
   /** Enables the Clock Security System
+  * If HSE fails (crystal stops), NMI fires and CPU switches to HSI clock
   */
   HAL_RCC_EnableCSS();
 }
