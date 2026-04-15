@@ -13,11 +13,34 @@
 
 ## System Architecture
 
+### Project Context: STM32 as FPGA USB Bridge
+
+This project implements the **STM32F411 side of a modular logic analyzer system**:
+
+**Current Implementation**: The STM32 runs a complete SUMP protocol engine with 8-channel GPIO sampling, demonstrating the USB gateway layer.
+
+**Future Integration**: An external FPGA will be integrated as the high-speed data acquisition engine:
+- **FPGA Role**: Real-time sampling, buffering, trigger logic (16-256+ channels @ 100+ MHz)
+- **STM32 Role**: USB host interface, FPGA data gateway, protocol translation
+- **Interface**: SPI or parallel protocol (TBD) between STM32 and FPGA
+- **Benefit**: Modular architecture - FPGA changes don't require USB host software updates
+
+The current STM32-only implementation is a **proof-of-concept and development platform**. It validates:
+- USB CDC protocol compliance with PulseView
+- SUMP command set implementation
+- Firmware architecture suitable for FPGA integration
+- Python host tool compatibility
+
+---
+
 ### High-Level Design
+
+**STM32 Protocol Layer** (Current - STM32 GPIO Input):
 
 ```
 ┌──────────────────────────────────────────────────────────┐
 │                    STM32F411 BlackPill                   │
+│              (USB Host + Future FPGA Bridge)             │
 ├──────────────────────────────────────────────────────────┤
 │                                                          │
 │  ┌────────────────────────────────────────────────────┐ │

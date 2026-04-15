@@ -335,15 +335,29 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin : USER_BUTTON_Pin */
   GPIO_InitStruct.Pin = USER_BUTTON_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;  /* Pull-down for clean button reading (active-high) */
   HAL_GPIO_Init(USER_BUTTON_GPIO_Port, &GPIO_InitStruct);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */
-  /* SUMP capture probes: PB0..PB7 -> CH0..CH7 for PulseView/OpenBench driver. */
+  /* SUMP capture probes: PB0..PB7 -> CH0..CH7 for PulseView/OpenBench driver.
+   * 
+   * CONFIGURATION:
+   *   - Mode: INPUT (read-only logic analyzer probes)
+   *   - Pull: PULLDOWN (GPIO_PULLDOWN)
+   *     Reason: Prevents floating pins from oscillating with electromagnetic noise
+   *     Effect: Idle state = logic LOW (0), clean signal without 50Hz parasites
+   *   - Speed: HIGH (3.3V signal slew rate)
+   * 
+   * NOISE ELIMINATION:
+   *   - Without pull-down: Floating GPIO picks up AC noise (~50-60Hz mains frequency)
+   *   - With pull-down: GPIO pulled to GND, stable LOW when unconnected
+   *   - Result: Clean captures, no spurious transitions in PulseView
+   */
   GPIO_InitStruct.Pin = GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3 |
                         GPIO_PIN_4 | GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;  /* ← CHANGED from GPIO_NOPULL to GPIO_PULLDOWN */
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* USER CODE END MX_GPIO_Init_2 */

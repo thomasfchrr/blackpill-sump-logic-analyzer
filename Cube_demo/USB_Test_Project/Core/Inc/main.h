@@ -64,6 +64,10 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN Private defines */
 
+/* Test signal generator: PA0 output pin (20ms period: 12ms HIGH + 8ms LOW) */
+#define TEST_SIGNAL_Pin GPIO_PIN_0
+#define TEST_SIGNAL_GPIO_Port GPIOA
+
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
