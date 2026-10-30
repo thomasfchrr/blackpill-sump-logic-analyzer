@@ -285,8 +285,8 @@ DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;              // Enable cycle counter
 ```
 
 **Properties**:
-- **Width**: 32 bits (wraps after ~42 seconds at 100 MHz)
-- **Precision**: 1 CPU cycle (~10 ns @ 100 MHz)
+- **Width**: 32 bits (wraps after ~44.7 seconds at 96 MHz)
+- **Precision**: 1 CPU cycle (~10.4 ns @ 96 MHz)
 - **Overhead**: ~1 cycle per read
 
 ### Sample Rate Calculation
@@ -343,7 +343,7 @@ int USB_SumpWaitForTrigger(void) {
 ```
 
 **Key Observations**:
-- ✅ **Precision**: ~10 ns timing (DWT resolution)
+- ✅ **Precision**: ~10.4 ns timing (DWT resolution @ 96 MHz)
 - ⚠️ **CPU Load**: 100% busy-wait during capture (unavoidable with DWT)
 - ⚠️ **32-bit Wraparound**: Handled via signed comparison `(int32_t)delta < timeout`
 
@@ -564,7 +564,7 @@ TOTAL LATENCY: ~100–200 µs (limited by main loop polling frequency)
 **Ideal jitter** (using DWT busy-wait):
 ```
 Target interval: 500 ns (at 2 MHz)
-DWT precision: 10 ns
+DWT precision: ~10.4 ns
 Expected jitter: ±5 ns (RMS)
 ```
 

@@ -1,6 +1,6 @@
 # BlackPill STM32F411 SUMP Logic Analyzer
 
-**A professional USB-FPGA bridge implementation using STM32F411 BlackPill as the host interface layer.**
+**An 8-channel, 2 MS/s SUMP logic analyzer on STM32F411 BlackPill, designed as the USB bridge of a future FPGA-based analyzer.**
 
 ---
 
@@ -51,7 +51,7 @@ This project demonstrates the **USB protocol layer** with 8-channel SUMP compati
 | **Logic Channels** | 8 channels (GPIOB[0:7]) - STM32 GPIO only |
 | **Max Sample Rate** | 2 MHz (configurable via SUMP divider) |
 | **Capture Buffer** | 16 KB (4096 32-bit samples) |
-| **Sampling Precision** | 10 ns (DWT cycle counter) |
+| **Sampling Precision** | ~10.4 ns (1 CPU cycle @ 96 MHz, DWT cycle counter) |
 | **Protocol Support** | SUMP (OLS/PulseView) + Custom framed binary |
 | **Debug Probe** | J-Link, ST-Link (configurable) |
 | **Power** | USB powered (5V/500mA) |
@@ -77,7 +77,7 @@ The STM32F411 will handle:
 ✅ **Hardware Timing Precision**: DWT cycle counter for sub-microsecond sample intervals
 ✅ **Robust Frame Validation**: 32-bit CRC polynomial (0xEDB88320) on all binary frames
 ✅ **Ring Buffer with DMA Support**: 4096-byte RX buffer, 16-slot TX queue with optional DMA copy
-✅ **Professional LED Feedback**: Real-time visual indicators (error, capture, heartbeat, activity)
+✅ **LED Feedback**: Real-time visual indicators (error, capture, heartbeat, activity)
 ✅ **Comprehensive Python Tooling**: CLI client, Qt6 GUI, automated smoke tests
 ✅ **Portable Build System**: Automated probe detection, PowerShell-based CI workflow
 ✅ **FPGA-Ready Architecture**: Modular design supports future FPGA integration without host software changes
@@ -188,7 +188,7 @@ Drivers/
 
 **Purpose**: High-reliability, diagnostics, streaming tests.
 
-**Frame Structure** (20 bytes header + 0–512 bytes payload):
+**Frame Structure** (16 bytes header + 0–512 bytes payload):
 
 | Offset | Bytes | Field | Type | Notes |
 |--------|-------|-------|------|-------|
@@ -208,7 +208,7 @@ Drivers/
 | 0x02 | PING_REQ | Variable | PING_RSP (0x82) echoes payload |
 | 0x06 | STATS_REQ | 0 bytes | STATS_RSP (0x86) with counters |
 | 0x08 | LED_REQ | Mode byte | Acknowledges LED control |
-| 0x0A | LOGIC_SNAPSHOT_REQ | 0 bytes | LOGIC_RSP (0x8A) with 8 samples |
+| 0x0A | LOGIC_SNAPSHOT_REQ | 0 bytes | LOGIC_RSP (0x8A) with synthetic test samples (not real GPIO data) |
 
 **Response Codes** (0x80–0xFF):
 
@@ -217,7 +217,7 @@ Drivers/
 | 0x81 | HELLO_RSP | Device name, FW version, clock freq, ring sizes |
 | 0x82 | PING_RSP | Echo of request payload |
 | 0x86 | STATS_RSP | RX/TX counters, DMA stats, stream state |
-| 0x8A | LOGIC_RSP | 8 bytes (latest GPIOB samples) |
+| 0x8A | LOGIC_RSP | 12-byte header + synthetic test samples (**not** read from GPIOB) |
 | 0xE0 | STREAM_DATA | Streaming payload chunk |
 | 0xF0 | WARN | Warning message (diagnostic) |
 | 0xFF | ERROR | Frame error, resync required |
@@ -246,14 +246,14 @@ return crc ^ 0xFFFFFFFF;  // Final XOR
              │   STM32F411     │
              │                 │
     USB ────→ PA11/PA12        │
-    J-Link   PB6 (CLK)         │
-    (SWD) ── PB7 (DIO)         │
+    J-Link   PA14 (SWCLK)      │
+    (SWD) ── PA13 (SWDIO)      │
              │                 │
     Logic ── PB0/PB7 ────────→ CH0..CH7
     Input    │                 │
              │                 │
     User LED─ PC13 ────────→ Status LED
-    User SW─ PC0/PC1           │
+    User SW─ PA0               │
              │                 │
              └─────────────────┘
 ```
@@ -265,7 +265,7 @@ return crc ^ 0xFFFFFFFF;  // Final XOR
 | PB0-PB7 | GPIOB | Input (floating) | Logic analyzer probes (CH0-CH7) |
 | PC13 | GPIOC | Output (push-pull) | User LED (active-low) |
 | PA11/PA12 | GPIOA | Alternate (AF10) | USB D-/D+ |
-| PB6/PB7 | GPIOB | Alternate (AF0) | SWD CLK/DIO (debug) |
+| PA13/PA14 | GPIOA | Alternate (AF0) | SWD SWDIO/SWCLK (debug) |
 
 ### Clock Configuration
 
@@ -337,20 +337,17 @@ powershell -ExecutionPolicy Bypass -File .\run_usb_tests.ps1
 
 **Noise Elimination** (Applied by Default):
 - **GPIO Pull Configuration**: All input probes (GPIOB[0:7]) configured with `GPIO_PULLDOWN`
-  - Eliminates floating-node 50-60 Hz mains frequency noise coupling
+  - Prevents floating inputs from picking up 50-60 Hz mains noise
   - Idle probes default to logic LOW (0V) instead of oscillating
-  
-- **Digital Filtering**: Majority voting filter on each sample
-  - Reads GPIO 3 times, applies bit-wise majority vote
-  - Filters single-bit glitches and high-frequency noise
-  - Zero sampling speed penalty (~200 ns overhead, negligible at 2 MHz)
 
-- **Result**: Clean, stable captures without spurious signal detection
-  - Before: Idle captures show 50 Hz oscillation, sample values range 0x2A-0x5E
-  - After: Idle captures stable, all samples read 0x00
-  - Improvement: 80-90% noise reduction
+- **Majority-vote filter**: each sample reads GPIOB 3 times and takes a bit-wise majority
+  - Only rejects glitches shorter than the ~0.2 µs it takes to read the port three times
+  - Cannot filter mains-frequency noise (20 ms period); the pull-down does that work
+  - Costs CPU cycles in the sampling loop; candidate for removal (see [NOISE_ELIMINATION.md](docs/NOISE_ELIMINATION.md))
 
-**For Production Use**, consider adding external **10 kΩ pull-down resistors** on each probe line for additional AC termination (see [NOISE_ELIMINATION.md](docs/NOISE_ELIMINATION.md) for details).
+- **Result**: idle inputs read a stable LOW instead of toggling (qualitative observation, no rigorous measurement)
+
+For noisy environments, consider adding external **10 kΩ pull-down resistors** on each probe line (see [NOISE_ELIMINATION.md](docs/NOISE_ELIMINATION.md) for details).
 
 ---
 
@@ -384,11 +381,10 @@ BlackPill_SUMP_Logic_Analyzer/
 ├── docs/                        ← Technical documentation
 │   ├── README.md                ← Doc index
 │   ├── ARCHITECTURE.md          ← Deep-dive architecture
-│   ├── PROTOCOL.md              ← Protocol specifications
-│   ├── HARDWARE.md              ← Pinouts, schematics
 │   ├── FIRMWARE.md              ← Firmware internals
 │   ├── PYTHON_TOOLS.md          ← Host tools guide
-│   └── DEBUGGING.md             ← Debug workflow
+│   ├── DEBUGGING.md             ← Debug workflow
+│   └── NOISE_ELIMINATION.md     ← Probe noise analysis
 │
 └── .vscode/                     ← VSCode configuration
     ├── tasks.json               ← Build/flash/test tasks
@@ -404,10 +400,10 @@ BlackPill_SUMP_Logic_Analyzer/
 
 | Rate | Period | Precision | Throughput |
 |------|--------|-----------|-----------|
-| 100 kHz | 10 µs | 10 ns | 100 KB/s |
-| 500 kHz | 2 µs | 10 ns | 500 KB/s |
-| 1 MHz | 1 µs | 10 ns | 1 MB/s |
-| 2 MHz | 500 ns | 10 ns | 2 MB/s |
+| 100 kHz | 10 µs | 10.4 ns | 100 KB/s |
+| 500 kHz | 2 µs | 10.4 ns | 500 KB/s |
+| 1 MHz | 1 µs | 10.4 ns | 1 MB/s |
+| 2 MHz | 500 ns | 10.4 ns | 2 MB/s |
 
 **Capture Duration** @ 2 MHz with 16 KB buffer:
 - Sample count: 4096 samples
@@ -489,15 +485,15 @@ BlackPill_SUMP_Logic_Analyzer/
 
 ## Contributing & License
 
-This is a **reference implementation** for educational and professional use.
+This is a **reference implementation** for educational use and experimentation.
 
 **License**: MIT (see `LICENSE` file)
 **Author**: Thomas Faucherre
-**Status**: Production-ready for evaluation, research, and integration into larger projects
+**Status**: Educational / evaluation prototype (8 channels, 2 MS/s). Not validated for production use.
 
 ### Extending the Project
 
-To adapt this for production:
+To extend this project:
 1. Add timer-based sampling (see `docs/FIRMWARE.md` for details)
 2. Implement RLE compression (SUMP flag 0x0100)
 3. Add external trigger input (GPIO edge detection)

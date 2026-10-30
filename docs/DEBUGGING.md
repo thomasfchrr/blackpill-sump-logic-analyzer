@@ -41,11 +41,11 @@ Pin 1 (VCC)       ────→  3.3V (VDD)
 Pin 2 (GND)       ────→  GND
 Pin 3 (NC)        ────→  (not used)
 Pin 4 (GND)       ────→  GND
-Pin 5 (TCLK)      ────→  PB6 (SWD CLK)
+Pin 9 (TCK)       ────→  PA14 (SWCLK)
 Pin 6 (GND)       ────→  GND
 Pin 7 (TDI)       ────→  NC
 Pin 8 (GND)       ────→  GND
-Pin 9 (TDO)       ────→  PB7 (SWD DIO)
+Pin 7 (TMS)       ────→  PA13 (SWDIO)
 Pin 10 (GND)      ────→  GND
 ```
 
