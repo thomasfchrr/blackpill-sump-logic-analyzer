@@ -20,7 +20,10 @@
 #define CAPTURE_MIN_SUMP_PERIOD  10U
 #endif
 
+/** Enable the peripherals and measure the DMA1 reload latency (takes about 2 ms). */
 void     capture_init(void);
+/** Reload latency in timer cycles used by capture_start() (measured at boot). */
+uint32_t capture_reload_latency(void);
 /**
  * Start free-running sampling with a period of (sump_divider + 1) / 100 MHz, exactly, on average.
  * The timer runs at 96 MHz, so the reload value is modulated sample by sample (Bresenham style) to

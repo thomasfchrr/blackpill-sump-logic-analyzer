@@ -34,7 +34,7 @@ and show the time difference and frequency. *Stop* aborts a capture still waitin
 
 ```python
 from blackpill_sump import Sump
-with Sump() as s:                       # auto-detects USB 0483:5740
+with Sump() as s:                       # auto-detects USB 1209:0001
     cap = s.capture(rate_hz=4e6, samples=8192,
                     trigger=[(0x08, 0x00), (0x08, 0x08)])   # rising edge on CH3
     print(cap.rate_hz, cap.trigger_index, cap.edges(3)[:5])

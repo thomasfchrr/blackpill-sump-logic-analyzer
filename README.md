@@ -1,5 +1,7 @@
 # BlackPill SUMP Logic Analyzer
 
+[![CI](https://github.com/thomasfchrr/blackpill-sump-logic-analyzer/actions/workflows/ci.yml/badge.svg)](https://github.com/thomasfchrr/blackpill-sump-logic-analyzer/actions/workflows/ci.yml)
+
 8-channel USB logic analyzer on an **STM32F411 BlackPill**, speaking the SUMP / OpenBench Logic Sniffer
 protocol so it is meant to work with **PulseView / sigrok** (driver `ols`). The sampler is fully
 hardware-driven (TIM1 + DMA), the firmware is non-blocking, and a Python CLI / viewer is included.
@@ -16,7 +18,7 @@ hardware-driven (TIM1 + DMA), the firmware is non-blocking, and a Python CLI / v
 | Max sample rate | **10 MS/s** (period 10 x 10 ns), exact SUMP timebase, no lost samples (verified, see below) |
 | Capture depth | 61 440 samples (64 KB DMA ring) |
 | Trigger | up to 4 sequential stages (mask/value), pre- and post-trigger window |
-| Transport | USB CDC virtual COM port, VID:PID `0483:5740` |
+| Transport | USB CDC virtual COM port, VID:PID `1209:0001` |
 | Flash / debug | on-board **ST-LINK V3** (SWD) through STM32CubeProgrammer and `ST-LINK_gdbserver` |
 | Toolchain | Clang 22 + LLD + CMake/Ninja (newlib-nano taken from the Arm GNU bundle) |
 
@@ -74,13 +76,20 @@ Compatibility with sigrok (PulseView 0.5.0-git and sigrok-cli 0.8.0-git, driver 
 - the `ols` driver only offers **level** triggers (0/1); edge triggers need the Python tools
 - the PulseView GUI itself was installed and starts, but I did not click through a capture in it
 
+## Known limits
+
+- the probes are wired straight to the MCU: 3.3 V only, no protection or adjustable threshold ([docs/HARDWARE.md](docs/HARDWARE.md))
+- 10 MS/s maximum with an exact timebase, 61 440 samples, 8 channels
+- in PulseView only level triggers are available (the `ols` driver); edge triggers need the Python tools
+- the DMA reload latency is measured at every boot (about 2 ms) and the timebase was validated on one board
+
 ## Repository layout
 
 ```
 firmware/   STM32F411 firmware (CMake, Clang), see docs/ARCHITECTURE.md
 host/       Python package blackpill_sump (client, CLI, Tk viewer, VCD/CSV export) and tests
 tools/      build / flash / debug / test PowerShell scripts (ST-LINK V3)
-docs/       architecture, debugging, host tools
+docs/       architecture, hardware notes, debugging, host tools
 ```
 
 ## License

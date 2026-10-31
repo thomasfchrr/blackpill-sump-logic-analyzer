@@ -93,7 +93,7 @@ def cmd_selftest(args: argparse.Namespace) -> int:
 
 def main(argv: Optional[List[str]] = None) -> int:
     ap = argparse.ArgumentParser(prog="blackpill_sump", description=__doc__)
-    ap.add_argument("--port", help="serial port (default: auto-detect USB 0483:5740)")
+    ap.add_argument("--port", help="serial port (default: auto-detect USB 1209:0001)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     sub.add_parser("info", help="show device information").set_defaults(fn=cmd_info)

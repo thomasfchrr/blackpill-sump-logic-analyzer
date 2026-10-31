@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install and test (hardware tests are skipped without a device)
+        working-directory: host
+        run: |
+          pip install -e ".[test]"
+          pytest -q
+
+  firmware:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain (Clang + LLD, newlib-nano from the Arm GNU bundle)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld cmake ninja-build gcc-arm-none-eabi libnewlib-arm-none-eabi binutils-arm-none-eabi
+      - name: Build
+        run: |
+          cmake -S firmware -B firmware/build -G Ninja
+          cmake --build firmware/build
+      - name: Size report
+        run: arm-none-eabi-size firmware/build/blackpill_sump.elf
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firmware
+          path: |
+            firmware/build/blackpill_sump.elf
+            firmware/build/blackpill_sump.bin

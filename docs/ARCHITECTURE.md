@@ -59,8 +59,11 @@ cycle. The 32-bit TIM5 needs no prescaler, even at 10 Hz.
 sample cost two DMA2 transfers and capped the exact rate at 8.33 MS/s. DMA1 cannot reach GPIO or APB2, but
 it can write TIM5 on APB1, so the reload moves to the otherwise idle controller and DMA2 only samples.
 
-**Landing time.** A reload request raised `K` cycles into a period reaches `ARR` about `RELOAD_LATENCY`
-(10 timer cycles, measured; the useful range is 9 to 11) later. Because that is comparable to a period,
+**Landing time.** A reload request raised `K` cycles into a period reaches `ARR` about `capture_reload_latency()`
+timer cycles later (10 on the test board; the useful range is 9 to 11). `capture_init()` measures it at every
+boot: a probe makes DMA1 write a value into `CCR3` at count `k` of a free-running 64-cycle TIM5, and the
+largest `k` for which `CC3IF` still sets (5 repeats, slowest wins) gives the delay. The value used is the
+measurement plus 1, which centres it in the working window; the raw result is `s_measured_latency`. Because that is comparable to a period,
 `capture_start()` picks `K` and a pipeline depth `q` so that the write always lands in the middle of a
 period, and the table entry `n` holds the length of period `n + q + 1`. The first few periods of a
 capture use period 0's length: a fixed offset of a few cycles at the start, with no effect on the rate.
@@ -121,8 +124,9 @@ analyzer verifies its own timing without any wiring.
   at 2 MS/s while hogging the CPU. All of it is in git history (tag `legacy-v0-jlink-framed`).
 - Probes use the internal ~40 kOhm **pull-down** so open channels read 0. Remove it in `main.c` if it
   loads your circuit.
-- The USB descriptors keep the ST VID:PID `0483:5740` so Windows binds `usbser` without a driver. A
-  distributed product needs its own VID/PID.
+- USB ids are `1209:0001` (pid.codes shared test PID), not ST's `0483:5740` that earlier versions borrowed.
+  Windows 10+ binds its inbox `usbser` driver to any CDC-ACM device, so no INF is needed. A distributed
+  product needs its own pid.codes PID or USB-IF VID.
 
 ## Roadmap: FPGA acquisition engine
 

@@ -13,6 +13,8 @@
  */
 #include "capture.h"
 
+#include <stdbool.h>
+
 #include "stm32f4xx.h"
 #include "stm32f4xx_hal.h"
 
@@ -26,8 +28,13 @@
 #define RELOAD_FLAGS        (DMA_LIFCR_CFEIF2 | DMA_LIFCR_CDMEIF2 | DMA_LIFCR_CTEIF2 | \
                              DMA_LIFCR_CHTIF2 | DMA_LIFCR_CTCIF2)
 #define RELOAD_TABLE_MAX    32U
+#define RELOAD_LATENCY_MIN  5U                         /* plausible window for the calibrated value */
+#define RELOAD_LATENCY_MAX  16U
 #ifndef RELOAD_LATENCY
-#define RELOAD_LATENCY      10U                        /* CC1 event to ARR write, timer cycles (measured) */
+#define RELOAD_LATENCY      10U                        /* fallback if the calibration gives nonsense */
+#endif
+#ifndef RELOAD_LATENCY_BIAS
+#define RELOAD_LATENCY_BIAS 1                          /* used = measured + bias; +1 centres the value in the 9..11 window that keeps periods of 10+ ticks exact */
 #endif
 
 _Static_assert((CAPTURE_RING_SIZE % 4U) == 0U, "ring length must be a multiple of 4");
@@ -36,12 +43,104 @@ _Static_assert(CAPTURE_RING_SIZE <= 65535U, "DMA NDTR is 16 bit");
 static volatile uint8_t s_ring[CAPTURE_RING_SIZE] __attribute__((aligned(4)));
 static uint32_t s_reload_table[RELOAD_TABLE_MAX];
 
+static uint32_t s_latency = RELOAD_LATENCY;
+static volatile uint32_t s_cal_value;
+static volatile uint32_t s_measured_latency;   /* raw calibration result, readable from a debugger */
+
+/**
+ * One calibration probe. TIM5 free-runs over 64 cycles; at count k its CC1 event makes DMA1 write
+ * CAL_TARGET into CCR3 (the same memory-to-APB1 path as a real reload). CCR3 starts out of reach, so
+ * CC3IF is set only if the write landed before the counter got to CAL_TARGET.
+ */
+#define CAL_PERIOD  64U
+#define CAL_TARGET  48U
+
+static bool calibration_probe(uint32_t k)
+{
+  uint32_t guard = 100000U;
+  bool hit;
+
+  s_cal_value = CAL_TARGET;
+  RELOAD_DMA->CR = 0U;
+  DMA1->LIFCR = RELOAD_FLAGS;
+  RELOAD_DMA->PAR  = (uint32_t)&TIM5->CCR3;
+  RELOAD_DMA->M0AR = (uint32_t)&s_cal_value;
+  RELOAD_DMA->NDTR = 1U;
+  RELOAD_DMA->FCR  = 0U;
+  RELOAD_DMA->CR   = (RELOAD_CHANNEL << DMA_SxCR_CHSEL_Pos) | DMA_SxCR_PL_1 |
+                     DMA_SxCR_MSIZE_1 | DMA_SxCR_PSIZE_1 | DMA_SxCR_DIR_0;     /* normal mode, M2P */
+  RELOAD_DMA->CR  |= DMA_SxCR_EN;
+
+  TIM5->CR1  = 0U;
+  TIM5->CR2  = 0U;
+  TIM5->DIER = 0U;
+  TIM5->PSC  = 0U;
+  TIM5->ARR  = CAL_PERIOD - 1U;
+  TIM5->CCR1 = k;
+  TIM5->CCR3 = 0xFFFFFFFFU;
+  TIM5->CNT  = 0U;
+  TIM5->EGR  = TIM_EGR_UG;
+  TIM5->SR   = 0U;
+  TIM5->DIER = TIM_DIER_CC1DE;
+  TIM5->CR1  = TIM_CR1_CEN;
+  while (((TIM5->SR & TIM_SR_UIF) == 0U) && (--guard != 0U))
+  {
+  }
+  hit = (TIM5->SR & TIM_SR_CC3IF) != 0U;
+  TIM5->CR1  = 0U;
+  TIM5->DIER = 0U;
+  RELOAD_DMA->CR = 0U;
+  while ((RELOAD_DMA->CR & DMA_SxCR_EN) != 0U)
+  {
+  }
+  return hit;
+}
+
+/** Measure the delay between a CC1 event and the landing of the DMA1 write, in timer cycles. */
+static uint32_t calibrate_reload_latency(void)
+{
+  uint32_t last_hit_k = 0U;
+
+  for (uint32_t k = 1U; k < CAL_TARGET; k++)
+  {
+    bool all = true;
+
+    for (uint32_t rep = 0U; rep < 5U; rep++)
+    {
+      all = all && calibration_probe(k);     /* the slowest of 5 runs decides */
+    }
+    if (all)
+    {
+      last_hit_k = k;
+    }
+    else if (last_hit_k != 0U)
+    {
+      break;
+    }
+  }
+  return (last_hit_k == 0U) ? 0U : (CAL_TARGET - last_hit_k);
+}
+
 void capture_init(void)
 {
+  uint32_t measured;
+  int32_t used;
+
   __HAL_RCC_DMA1_CLK_ENABLE();
   __HAL_RCC_DMA2_CLK_ENABLE();
   __HAL_RCC_TIM1_CLK_ENABLE();
   __HAL_RCC_TIM5_CLK_ENABLE();
+
+  measured = calibrate_reload_latency();
+  used = (int32_t)measured + RELOAD_LATENCY_BIAS;
+  s_latency = ((used >= (int32_t)RELOAD_LATENCY_MIN) && (used <= (int32_t)RELOAD_LATENCY_MAX))
+                ? (uint32_t)used : RELOAD_LATENCY;
+  s_measured_latency = measured;
+}
+
+uint32_t capture_reload_latency(void)
+{
+  return s_latency;
 }
 
 uint32_t capture_timer_hz(void)
@@ -95,7 +194,7 @@ uint32_t capture_start(uint32_t sump_divider)
   den /= g;
 
   /* Period k lasts c(k) = floor((k+1) P) - floor(k P) cycles: exact on average, at most 1 cycle (10.4 ns)
-   * of jitter. A reload request raised K cycles into period n reaches TIM5->ARR RELOAD_LATENCY cycles
+   * of jitter. A reload request raised K cycles into period n reaches TIM5->ARR s_latency cycles (measured at boot)
    * later, i.e. in period n + q with q = (K + latency) / P, and then applies to period n + q + 1.
    * K is chosen so the write lands in the middle of a period, whatever the rate: q is the smallest
    * depth for which K = (q + 1/2) P - latency fits in the period. Entry n holds c(n + q + 1). The
@@ -114,9 +213,9 @@ uint32_t capture_start(uint32_t sump_divider)
     {
       uint32_t land = (2U * depth + 1U) * p2 / 4U;      /* (q + 1/2) P */
 
-      if (land > RELOAD_LATENCY)
+      if (land > s_latency)
       {
-        request_at = land - RELOAD_LATENCY;
+        request_at = land - s_latency;
         if (request_at < 1U)
         {
           request_at = 1U;

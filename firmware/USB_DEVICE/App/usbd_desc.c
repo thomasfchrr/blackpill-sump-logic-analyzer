@@ -62,10 +62,10 @@
   * @{
   */
 
-#define USBD_VID     1155
+#define USBD_VID     4617    /* 0x1209 pid.codes */
 #define USBD_LANGID_STRING     1033
 #define USBD_MANUFACTURER_STRING     "BlackPill SUMP project"
-#define USBD_PID_FS     22336
+#define USBD_PID_FS     1       /* 0x0001: pid.codes shared test PID, see docs/ARCHITECTURE.md */
 #define USBD_PRODUCT_STRING_FS     "BlackPill SUMP Logic Analyzer"
 #define USBD_CONFIGURATION_STRING_FS     "CDC Config"
 #define USBD_INTERFACE_STRING_FS     "CDC Interface"

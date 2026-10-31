@@ -11,8 +11,8 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import serial
 from serial.tools import list_ports
 
-USB_VID = 0x0483
-USB_PID = 0x5740
+USB_VID = 0x1209
+USB_PID = 0x0001
 
 BASE_CLOCK_HZ = 100_000_000   # SUMP divider clock; the firmware reproduces it exactly
 MIN_PERIOD_TICKS = 10        # shortest sample period sustained with an exact timebase (10 MS/s)
@@ -94,7 +94,7 @@ class Sump:
     def __init__(self, port: Optional[str] = None, timeout: float = 2.0):
         port = port or find_port()
         if port is None:
-            raise SumpError("analyzer not found (USB 0483:5740); pass the port explicitly")
+            raise SumpError("analyzer not found (USB 1209:0001); pass the port explicitly")
         self.port = port
         self.ser = serial.Serial(port, 115200, timeout=timeout, write_timeout=timeout)
         self.info = DeviceInfo()
