@@ -59,8 +59,15 @@ On a BlackPill with an ST-LINK V3SET:
 - pre-trigger / post-trigger windows, 2-stage edge trigger, abort while waiting for a trigger
 - 24 MS/s and above lose DMA requests silently, which is why 19.2 MS/s is the enforced limit
 
-PulseView itself was **not** installed on the test machine. The implementation follows the sigrok `ols`
-driver, but the PulseView round trip is untested.
+Compatibility with sigrok (PulseView 0.5.0-git and sigrok-cli 0.8.0-git, driver `ols`), checked with
+`sigrok-cli` on the same libsigrok that PulseView uses:
+
+- the device is detected, with 8 channels, 61 440 samples and a 10 Hz - 19.2 MHz rate range
+- captures with the internal pattern at 4 MHz give exact frequencies (100 kHz, 500 kHz, 1 MHz)
+- a level trigger (`--triggers 3=1`) with a 25 % capture ratio puts the trigger at sample 4096 of 16384
+- requests above 19.2 MHz are rejected by sigrok itself; 19 MHz maps to the 19.2 MS/s timer (1 % time error)
+- the `ols` driver only offers **level** triggers (0/1); edge triggers need the Python tools
+- the PulseView GUI itself was installed and starts, but I did not click through a capture in it
 
 ## Repository layout
 

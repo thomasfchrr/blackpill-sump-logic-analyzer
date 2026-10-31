@@ -5,7 +5,9 @@
 Driver: *OpenBench Logic Sniffer & SUMP compatible* (`ols`), the BlackPill COM port, any baud rate. The
 device reports 8 probes, 61 440 samples of memory and a 19.2 MS/s maximum through SUMP metadata. See the
 sample-rate caveat in the [README](../README.md#sample-rate-caveat-read-once): the time axis is exact for
-rates 4 MHz / k. This path has not been exercised with a real PulseView yet.
+rates 4 MHz / k. Verified with `sigrok-cli -d ols:conn=COM7 --config samplerate=4MHz:pattern=Internal --samples 16384`
+(`pattern=Internal` drives the built-in test pattern on PB0..PB7). The `ols` driver exposes level triggers
+only; use the Python tools for edge triggers.
 
 ## blackpill_sump (Python)
 
