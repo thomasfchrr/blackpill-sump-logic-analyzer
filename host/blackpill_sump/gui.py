@@ -17,7 +17,7 @@ from .export import write_csv, write_vcd
 BG, FG, GRID = "#14161a", "#d8dde6", "#2a2e36"
 COLORS = ["#ffd166", "#06d6a0", "#4cc9f0", "#ef476f", "#c77dff", "#f8961e", "#90be6d", "#f9c74f"]
 LABEL_W, ROW_H, RULER_H = 64, 38, 26
-RATES = ["100k", "500k", "1M", "2M", "5M", "10M", "19.2M"]
+RATES = ["100k", "500k", "1M", "2M", "5M", "7M", "8.33M"]
 SIZES = ["1024", "4096", "16384", "61440"]
 TRIGGERS = ["none", "rise", "fall", "high", "low"]
 

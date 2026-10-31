@@ -13,7 +13,7 @@ hardware-driven (TIM1 + DMA), the firmware is non-blocking, and a Python CLI / v
 |---|---|
 | MCU | STM32F411CEU6, Cortex-M4F @ 96 MHz (HSE 25 MHz + PLL), USB full-speed 48 MHz |
 | Channels | 8: `CH0..CH7` = `PB0..PB7`, 3.3 V logic |
-| Max sample rate | **19.2 MS/s** (96 MHz / 5), sustained, no lost samples (verified, see below) |
+| Max sample rate | **8.33 MS/s** (period 12 x 10 ns), exact SUMP timebase, no lost samples (verified, see below) |
 | Capture depth | 61 440 samples (64 KB DMA ring) |
 | Trigger | up to 4 sequential stages (mask/value), pre- and post-trigger window |
 | Transport | USB CDC virtual COM port, VID:PID `0483:5740` |
@@ -39,33 +39,35 @@ tools\test.ps1               # unit tests + on-hardware self-test
 
 PulseView: choose *OpenBench Logic Sniffer & SUMP compatible*, select the BlackPill COM port (baud rate is
 ignored by USB CDC). See [docs/HOST_TOOLS.md](docs/HOST_TOOLS.md) for the CLI, the viewer and the rate
-caveat below.
+exact-timebase note below.
 
-## Sample-rate caveat (read once)
+## Exact timebase
 
-SUMP hosts compute the divider against a fixed **100 MHz** clock, but the sampling timer runs at **96 MHz**
-(the PLL has to produce an exact 48 MHz for USB, which excludes a 100 MHz core). The firmware picks the
-closest integer timer divider, so the real rate is within a few percent of the requested one. It is
-**exact for rates of the form 4 MHz / k** (4 M, 2 M, 1 M, 500 k, 100 k, ...). The bundled Python tools use
-the real rate. In PulseView the time axis is scaled by the requested rate, so prefer the exact rates when
-you measure time.
+SUMP hosts compute the divider against a fixed **100 MHz** clock, while the sampling timer runs at **96 MHz**
+(USB needs an exact 48 MHz, which excludes a 100 MHz core). Rather than accept a few percent of time error,
+the firmware reproduces the 100 MHz timebase exactly: the timer reload value is modulated sample by sample
+(a second DMA stream feeds a small table, e.g. 5, 5, 5, 5, 4 cycles for a 4.8-cycle period), so the average
+period is exactly `(divider + 1) / 100 MHz` and each sample is at most one timer cycle (10.4 ns) from its
+ideal instant. The price is the maximum rate: the two DMA streams sustain 8.33 MS/s; 10 and 11 tick periods
+lose about 0.1 % of the samples, so the firmware refuses anything faster.
 
 ## Verification performed
 
-On a BlackPill with an ST-LINK V3SET:
+On a BlackPill with an ST-LINK V3SET, using the 1 MHz output of the built-in test pattern as a reference:
 
-- built-in test pattern sampled at 1, 4, 10 and 19.2 MS/s: every frequency within 0.2 %
-- 200 consecutive 61 440-sample captures at 19.2 MS/s: zero lost samples
+- time error vs the requested SUMP rate: 0.0000 % at 5, 4, 2 MS/s and at most 0.0011 % for every other period
+  tested from 12 to 30 ticks (the residue is the one-sample quantization of the measurement)
+- the same check through `sigrok-cli` (which assumes the 100 MHz clock) gives 0.0000 to 0.0011 %
+- 10 and 11 tick periods (10 and 9.09 MS/s) lose about 0.1 % of the samples, hence the 8.33 MS/s limit
 - pre-trigger / post-trigger windows, 2-stage edge trigger, abort while waiting for a trigger
-- 24 MS/s and above lose DMA requests silently, which is why 19.2 MS/s is the enforced limit
 
 Compatibility with sigrok (PulseView 0.5.0-git and sigrok-cli 0.8.0-git, driver `ols`), checked with
 `sigrok-cli` on the same libsigrok that PulseView uses:
 
-- the device is detected, with 8 channels, 61 440 samples and a 10 Hz - 19.2 MHz rate range
-- captures with the internal pattern at 4 MHz give exact frequencies (100 kHz, 500 kHz, 1 MHz)
+- the device is detected, with 8 channels, 61 440 samples and a 10 Hz - 8.33 MHz rate range
+- captures with the internal pattern give exact frequencies (100 kHz, 500 kHz, 1 MHz)
 - a level trigger (`--triggers 3=1`) with a 25 % capture ratio puts the trigger at sample 4096 of 16384
-- requests above 19.2 MHz are rejected by sigrok itself; 19 MHz maps to the 19.2 MS/s timer (1 % time error)
+- requests above 8.33 MHz are rejected by sigrok itself, and any divider is honoured exactly
 - the `ols` driver only offers **level** triggers (0/1); edge triggers need the Python tools
 - the PulseView GUI itself was installed and starts, but I did not click through a capture in it
 

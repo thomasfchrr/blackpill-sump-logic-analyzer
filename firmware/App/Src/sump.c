@@ -119,19 +119,6 @@ static void trigger_reset(void)
   s_cfg.trig_start = 0U;
 }
 
-/* Map the host's 100 MHz-based divider to the closest integer divider of the timer clock. */
-static uint32_t timer_divider(uint32_t sump_divider)
-{
-  uint64_t num = ((uint64_t)sump_divider + 1U) * capture_timer_hz();
-  uint64_t div = (num + (SUMP_BASE_CLOCK_HZ / 2U)) / SUMP_BASE_CLOCK_HZ;
-
-  if (div < CAPTURE_MIN_DIV)
-  {
-    div = CAPTURE_MIN_DIV;
-  }
-  return (uint32_t)div;
-}
-
 /* --- capture --------------------------------------------------------------- */
 static void testgen_release(void)
 {
@@ -189,7 +176,7 @@ static void capture_arm(void)
     s_cap.testgen = true;
   }
 
-  s_stats.last_divider = capture_start(timer_divider(s_cfg.divider));
+  s_stats.last_divider = capture_start(s_cfg.divider);
   s_stats.last_samples = total;
   s_state = SUMP_WAIT_PRETRIGGER;
   led_set_state(LED_ARMED);
@@ -406,7 +393,7 @@ static void send_metadata(void)
 
   out[n++] = META_NUM_PROBES;    n += put_be32(&out[n], SUMP_CHANNELS);
   out[n++] = META_SAMPLE_MEM;    n += put_be32(&out[n], SUMP_MAX_SAMPLES);
-  out[n++] = META_MAX_RATE;      n += put_be32(&out[n], capture_timer_hz() / CAPTURE_MIN_DIV);
+  out[n++] = META_MAX_RATE;      n += put_be32(&out[n], CAPTURE_SUMP_CLOCK_HZ / CAPTURE_MIN_SUMP_PERIOD);
   out[n++] = META_PROTO_VERSION; n += put_be32(&out[n], 2U);
   out[n++] = META_END;
   (void)usb_link_tx_write(out, n);

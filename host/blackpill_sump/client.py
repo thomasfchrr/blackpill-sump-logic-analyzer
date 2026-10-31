@@ -14,9 +14,8 @@ from serial.tools import list_ports
 USB_VID = 0x0483
 USB_PID = 0x5740
 
-BASE_CLOCK_HZ = 100_000_000   # clock every SUMP host assumes for the divider
-TIMER_CLOCK_HZ = 96_000_000   # real sampling clock of the BlackPill firmware
-MIN_TIMER_DIV = 5
+BASE_CLOCK_HZ = 100_000_000   # SUMP divider clock; the firmware reproduces it exactly
+MIN_PERIOD_TICKS = 12         # shortest sample period the firmware sustains without losses (8.33 MS/s)
 
 CMD_RESET = 0x00
 CMD_ARM = 0x01
@@ -51,15 +50,9 @@ def divider_for_rate(rate_hz: float) -> int:
     return max(0, round(BASE_CLOCK_HZ / rate_hz) - 1)
 
 
-def timer_divider(sump_divider: int) -> int:
-    """Timer divider the firmware derives from a SUMP divider (mirrors sump.c)."""
-    n = ((sump_divider + 1) * TIMER_CLOCK_HZ + BASE_CLOCK_HZ // 2) // BASE_CLOCK_HZ
-    return max(MIN_TIMER_DIV, n)
-
-
 def actual_rate(sump_divider: int) -> float:
-    """Sample rate really produced for *sump_divider* (the 100 MHz vs 96 MHz clock gap)."""
-    return TIMER_CLOCK_HZ / timer_divider(sump_divider)
+    """Sample rate produced for *sump_divider* (the firmware clamps very fast requests)."""
+    return BASE_CLOCK_HZ / max(sump_divider + 1, MIN_PERIOD_TICKS)
 
 
 @dataclass

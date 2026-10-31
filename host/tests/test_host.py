@@ -6,7 +6,7 @@ import pytest
 
 from blackpill_sump import Capture, Sump, actual_rate, find_port
 from blackpill_sump.cli import parse_rate, parse_trigger
-from blackpill_sump.client import divider_for_rate, timer_divider
+from blackpill_sump.client import divider_for_rate
 from blackpill_sump.export import write_csv, write_vcd
 
 
@@ -24,15 +24,15 @@ def test_parse_trigger():
         parse_trigger("3:bogus")
 
 
-@pytest.mark.parametrize("rate,expected", [(1e6, 1e6), (2e6, 2e6), (4e6, 4e6), (100e3, 100e3)])
-def test_exact_rates(rate, expected):
-    # Multiples of 4 MHz / k map exactly onto the 96 MHz timer.
-    assert actual_rate(divider_for_rate(rate)) == expected
+@pytest.mark.parametrize("rate", [1e6, 2e6, 5e6, 20e3, 3.3e6, 8e6])
+def test_rates_follow_the_sump_clock(rate):
+    # divider = 100 MHz / rate - 1, honoured exactly by the firmware (rounded to the divider grid)
+    assert actual_rate(divider_for_rate(rate)) == pytest.approx(rate, rel=0.06)
+    assert actual_rate(divider_for_rate(rate)) == 1e8 / (divider_for_rate(rate) + 1)
 
 
-def test_rate_is_clamped_to_dma_limit():
-    assert actual_rate(divider_for_rate(100e6)) == pytest.approx(19.2e6)
-    assert timer_divider(0) == 5
+def test_rate_is_clamped_to_the_dma_limit():
+    assert actual_rate(0) == 1e8 / 12
 
 
 def test_vcd_and_csv():
@@ -56,9 +56,9 @@ def test_capture_edges():
 @pytest.mark.skipif(find_port() is None, reason="analyzer not connected")
 def test_hardware_pattern_and_trigger():
     with Sump() as s:
-        cap = s.capture(rate_hz=19.2e6, samples=8192, post_trigger=4096,
+        cap = s.capture(rate_hz=5e6, samples=8192, post_trigger=4096,
                         trigger=[(0x08, 0x00), (0x08, 0x08)], test_pattern=True)
         i = cap.trigger_index
         assert [(b >> 3) & 1 for b in cap.samples[i - 1:i + 1]] == [0, 1]   # rising edge on PB3
-        spacing = [b - a for a, b in zip(cap.edges(3), cap.edges(3)[1:])]
-        assert set(spacing) <= {95, 96, 97}
+        e = cap.edges(3)
+        assert {b - a for a, b in zip(e, e[1:])} <= {24, 25, 26}            # 100 kHz at 5 MS/s

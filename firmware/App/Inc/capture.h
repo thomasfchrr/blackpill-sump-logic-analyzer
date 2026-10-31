@@ -13,12 +13,20 @@
 
 /** Ring length in samples. NDTR is 16 bit, and the length must be a multiple of 4. */
 #define CAPTURE_RING_SIZE   65532U
-/** Smallest timer divider the DMA can sustain (96 MHz / 5 = 19.2 MS/s, measured; below it DMA requests are silently lost). */
-#define CAPTURE_MIN_DIV     5U
+/** Clock that every SUMP host assumes when it computes the divider. */
+#define CAPTURE_SUMP_CLOCK_HZ  100000000UL
+/** Shortest sample period the DMA pair can sustain, in SUMP clock ticks (see capture.c). */
+#ifndef CAPTURE_MIN_SUMP_PERIOD
+#define CAPTURE_MIN_SUMP_PERIOD  12U
+#endif
 
 void     capture_init(void);
-/** Start free-running sampling at timer_clock / div (div >= CAPTURE_MIN_DIV). Returns the divider used. */
-uint32_t capture_start(uint32_t div);
+/**
+ * Start free-running sampling with a period of (sump_divider + 1) / 100 MHz, exactly, on average.
+ * The timer runs at 96 MHz, so the reload value is modulated sample by sample (Bresenham style) to
+ * remove the 100/96 clock mismatch. Returns the SUMP divider actually used (clamped to the minimum).
+ */
+uint32_t capture_start(uint32_t sump_divider);
 void     capture_stop(void);
 /** Index of the next sample the DMA will write, 0 .. CAPTURE_RING_SIZE-1. */
 uint32_t capture_pos(void);
