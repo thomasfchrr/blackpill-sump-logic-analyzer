@@ -1,39 +1,55 @@
 /**
  * @file    capture.c
- * @brief   TIM1 + DMA2 sampling engine. See capture.h.
+ * @brief   Sampling engine with an exact SUMP timebase. See capture.h.
+ *
+ *   TIM5 (master, APB1, 32 bit)  --TRGO on every update-->  TIM1 (slave, reset mode)
+ *      ^ ARR reload table                                      | update event = DMA request
+ *      | DMA1 stream 2 (TIM5_CH1 request)                      v
+ *                                              DMA2 stream 5: GPIOB->IDR byte --> SRAM ring
+ *
+ * The 96 MHz timer clock cannot divide into 10 ns SUMP ticks, so TIM5 changes its reload value every
+ * period (5,5,5,5,4 cycles for a 4.8-cycle period, ...). That reload traffic runs on DMA1 and the
+ * APB1 bridge, while DMA2 only has to copy one byte per sample.
  */
 #include "capture.h"
 
 #include "stm32f4xx.h"
 #include "stm32f4xx_hal.h"
 
-#define DMA_STREAM          DMA2_Stream5
-#define DMA_CHANNEL         6U                         /* TIM1_UP, RM0383 table 28 */
-#define DMA_ARR_STREAM      DMA2_Stream6
-#define DMA_ARR_CHANNEL     0U                         /* TIM1_CH1 */
-#define DMA_ARR_FLAGS_CLEAR (DMA_HIFCR_CFEIF6 | DMA_HIFCR_CDMEIF6 | DMA_HIFCR_CTEIF6 |                              DMA_HIFCR_CHTIF6 | DMA_HIFCR_CTCIF6)
-#define CAPTURE_TABLE_MAX   32U
-#define DMA_FLAGS_CLEAR     (DMA_HIFCR_CFEIF5 | DMA_HIFCR_CDMEIF5 | DMA_HIFCR_CTEIF5 | \
+#define SAMPLE_DMA          DMA2_Stream5
+#define SAMPLE_CHANNEL      6U                         /* TIM1_UP request */
+#define SAMPLE_FLAGS        (DMA_HIFCR_CFEIF5 | DMA_HIFCR_CDMEIF5 | DMA_HIFCR_CTEIF5 | \
                              DMA_HIFCR_CHTIF5 | DMA_HIFCR_CTCIF5)
+
+#define RELOAD_DMA          DMA1_Stream2
+#define RELOAD_CHANNEL      6U                         /* TIM5_CH1 request */
+#define RELOAD_FLAGS        (DMA_LIFCR_CFEIF2 | DMA_LIFCR_CDMEIF2 | DMA_LIFCR_CTEIF2 | \
+                             DMA_LIFCR_CHTIF2 | DMA_LIFCR_CTCIF2)
+#define RELOAD_TABLE_MAX    32U
+#ifndef RELOAD_LATENCY
+#define RELOAD_LATENCY      10U                        /* CC1 event to ARR write, timer cycles (measured) */
+#endif
 
 _Static_assert((CAPTURE_RING_SIZE % 4U) == 0U, "ring length must be a multiple of 4");
 _Static_assert(CAPTURE_RING_SIZE <= 65535U, "DMA NDTR is 16 bit");
 
 static volatile uint8_t s_ring[CAPTURE_RING_SIZE] __attribute__((aligned(4)));
-static uint16_t s_arr_table[CAPTURE_TABLE_MAX];
+static uint32_t s_reload_table[RELOAD_TABLE_MAX];
 
 void capture_init(void)
 {
+  __HAL_RCC_DMA1_CLK_ENABLE();
   __HAL_RCC_DMA2_CLK_ENABLE();
   __HAL_RCC_TIM1_CLK_ENABLE();
+  __HAL_RCC_TIM5_CLK_ENABLE();
 }
 
 uint32_t capture_timer_hz(void)
 {
-  uint32_t pclk2 = HAL_RCC_GetPCLK2Freq();
+  uint32_t pclk1 = HAL_RCC_GetPCLK1Freq();
 
-  /* Timer clock is doubled when the APB prescaler is not 1. */
-  return ((RCC->CFGR & RCC_CFGR_PPRE2) >= RCC_CFGR_PPRE2_2) ? (2U * pclk2) : pclk2;
+  /* Timer clock is doubled when the APB prescaler is not 1. TIM5 and TIM1 must share it. */
+  return ((RCC->CFGR & RCC_CFGR_PPRE1) >= RCC_CFGR_PPRE1_2) ? (2U * pclk1) : pclk1;
 }
 
 static uint64_t gcd64(uint64_t a, uint64_t b)
@@ -47,13 +63,21 @@ static uint64_t gcd64(uint64_t a, uint64_t b)
   return a;
 }
 
+/* Length in timer cycles of period k when the mean period is num / den cycles. */
+static uint32_t reload_cycles(uint64_t num, uint64_t den, uint32_t k)
+{
+  k %= (uint32_t)den;
+  return (uint32_t)(((k + 1U) * num) / den - (k * num) / den);
+}
+
 uint32_t capture_start(uint32_t sump_divider)
 {
   uint64_t num;
   uint64_t den;
   uint64_t g;
-  uint32_t psc = 0U;
   uint32_t first;
+  uint32_t second;
+  uint32_t request_at;
   uint32_t table_len = 0U;
 
   capture_stop();
@@ -63,95 +87,130 @@ uint32_t capture_start(uint32_t sump_divider)
     sump_divider = CAPTURE_MIN_SUMP_PERIOD - 1U;
   }
 
-  /* Period in timer cycles = num / den, reduced. For a 96 MHz timer den divides 25. */
+  /* Period in timer cycles = num / den, reduced (den divides 25 for a 96 MHz timer). */
   num = (uint64_t)(sump_divider + 1U) * capture_timer_hz();
   den = CAPTURE_SUMP_CLOCK_HZ;
   g = gcd64(num, den);
   num /= g;
   den /= g;
 
-  if ((num / den) >= 65536U)
+  /* Period k lasts c(k) = floor((k+1) P) - floor(k P) cycles: exact on average, at most 1 cycle (10.4 ns)
+   * of jitter. A reload request raised K cycles into period n reaches TIM5->ARR RELOAD_LATENCY cycles
+   * later, i.e. in period n + q with q = (K + latency) / P, and then applies to period n + q + 1.
+   * K is chosen so the write lands in the middle of a period, whatever the rate: q is the smallest
+   * depth for which K = (q + 1/2) P - latency fits in the period. Entry n holds c(n + q + 1). The
+   * first q + 1 periods use c(0) (a fixed offset of a few cycles at the start of the capture, no
+   * influence on the rate). */
+  first = (uint32_t)(num / den) - 1U;
+  if ((den > 1U) && (den <= RELOAD_TABLE_MAX))
   {
-    /* Slow rates: prescale; the rounding error is below 1e-5 of the period. */
-    uint64_t cycles = (num + den / 2U) / den;
+    uint32_t p2 = (uint32_t)((2U * num) / den);       /* 2 P, in cycles, rounded down */
+    uint32_t pmin = (uint32_t)(num / den);
+    uint32_t depth = 0U;
 
-    psc = (uint32_t)((cycles - 1U) >> 16);
-    first = (uint32_t)(((cycles + psc / 2U) / (psc + 1U)) - 1U);
-  }
-  else if (den == 1U)
-  {
-    first = (uint32_t)num - 1U;
-  }
-  else if (den <= CAPTURE_TABLE_MAX)
-  {
-    /* Period k lasts floor((k+1)*P) - floor(k*P) cycles: exact on average, +-1 cycle (10.4 ns) at most.
-     * s_arr_table[j] holds the reload for period j+1; period 0 is loaded directly. */
-    for (uint32_t k = 0U; k < den; k++)
-    {
-      uint64_t c = ((k + 2U) * num) / den - ((k + 1U) * num) / den;
-
-      s_arr_table[k] = (uint16_t)(c - 1U);
-    }
-    first = (uint32_t)(num / den) - 1U;   /* floor(P) - 1 == c_0 - 1 */
     table_len = (uint32_t)den;
+    request_at = 1U;
+    for (depth = 0U; depth < 8U; depth++)
+    {
+      uint32_t land = (2U * depth + 1U) * p2 / 4U;      /* (q + 1/2) P */
+
+      if (land > RELOAD_LATENCY)
+      {
+        request_at = land - RELOAD_LATENCY;
+        if (request_at < 1U)
+        {
+          request_at = 1U;
+        }
+        if (request_at <= (pmin - 1U))
+        {
+          break;
+        }
+      }
+    }
+    for (uint32_t j = 0U; j < table_len; j++)
+    {
+      s_reload_table[j] = reload_cycles(num, den, j + depth + 1U) - 1U;
+    }
+    first = reload_cycles(num, den, 0U) - 1U;
   }
   else
   {
-    first = (uint32_t)((num + den / 2U) / den) - 1U;
+    request_at = 1U;
   }
+  second = first;
 
-  /* DMA first: the streams idle until TIM1 raises requests. */
-  DMA2->HIFCR = DMA_FLAGS_CLEAR | DMA_ARR_FLAGS_CLEAR;
-  DMA_STREAM->PAR  = (uint32_t)&GPIOB->IDR;        /* byte access = PB0..PB7 (little endian) */
-  DMA_STREAM->M0AR = (uint32_t)s_ring;
-  DMA_STREAM->NDTR = CAPTURE_RING_SIZE;
-  DMA_STREAM->FCR  = 0U;                           /* direct mode */
-  DMA_STREAM->CR   = (DMA_CHANNEL << DMA_SxCR_CHSEL_Pos) |
-                     DMA_SxCR_PL |                 /* very high priority */
-                     DMA_SxCR_MINC | DMA_SxCR_CIRC;   /* P2M, 8-bit, no peripheral increment */
-  DMA_STREAM->CR  |= DMA_SxCR_EN;
-
+  /* Pacer: TIM5 with a preloaded 32-bit ARR that DMA1 rewrites once per period. */
+  RELOAD_DMA->CR = 0U;
+  DMA1->LIFCR = RELOAD_FLAGS;
+  TIM5->CR1  = TIM_CR1_ARPE;
+  TIM5->CR2  = TIM_CR2_MMS_1;                      /* TRGO = update event */
+  TIM5->DIER = 0U;
+  TIM5->PSC  = 0U;
+  TIM5->ARR  = first;
+  TIM5->CCR1 = request_at;                         /* CC1 late in each period requests the reload */
+  TIM5->CNT  = 0U;
+  TIM5->EGR  = TIM_EGR_UG;                         /* loads ARR; TIM1 is still disabled, so it ignores the TRGO */
+  TIM5->ARR  = second;                             /* preload: period 1 */
+  TIM5->SR   = 0U;
   if (table_len != 0U)
   {
-    DMA_ARR_STREAM->PAR  = (uint32_t)&TIM1->ARR;
-    DMA_ARR_STREAM->M0AR = (uint32_t)s_arr_table;
-    DMA_ARR_STREAM->NDTR = table_len;
-    DMA_ARR_STREAM->FCR  = 0U;
-    DMA_ARR_STREAM->CR   = (DMA_ARR_CHANNEL << DMA_SxCR_CHSEL_Pos) | DMA_SxCR_PL_1 |   /* high */
-                           DMA_SxCR_MSIZE_0 | DMA_SxCR_PSIZE_0 |                     /* 16-bit */
-                           DMA_SxCR_MINC | DMA_SxCR_CIRC | DMA_SxCR_DIR_0;           /* M2P */
-    DMA_ARR_STREAM->CR  |= DMA_SxCR_EN;
+    RELOAD_DMA->PAR  = (uint32_t)&TIM5->ARR;
+    RELOAD_DMA->M0AR = (uint32_t)s_reload_table;
+    RELOAD_DMA->NDTR = table_len;
+    RELOAD_DMA->FCR  = 0U;
+    RELOAD_DMA->CR   = (RELOAD_CHANNEL << DMA_SxCR_CHSEL_Pos) | DMA_SxCR_PL_1 |
+                       DMA_SxCR_MSIZE_1 | DMA_SxCR_PSIZE_1 |                /* 32-bit */
+                       DMA_SxCR_MINC | DMA_SxCR_CIRC | DMA_SxCR_DIR_0;      /* memory to peripheral */
+    RELOAD_DMA->CR  |= DMA_SxCR_EN;
+    TIM5->DIER = TIM_DIER_CC1DE;
   }
+  /* Sampler: each TIM5 trigger resets TIM1, whose update event is the DMA request. */
+  SAMPLE_DMA->CR = 0U;
+  DMA2->HIFCR = SAMPLE_FLAGS;
+  SAMPLE_DMA->PAR  = (uint32_t)&GPIOB->IDR;        /* byte access = PB0..PB7 (little endian) */
+  SAMPLE_DMA->M0AR = (uint32_t)s_ring;
+  SAMPLE_DMA->NDTR = CAPTURE_RING_SIZE;
+  SAMPLE_DMA->FCR  = 0U;                           /* direct mode */
+  SAMPLE_DMA->CR   = (SAMPLE_CHANNEL << DMA_SxCR_CHSEL_Pos) |
+                     DMA_SxCR_PL |                 /* very high priority */
+                     DMA_SxCR_MINC | DMA_SxCR_CIRC;   /* P2M, 8-bit, no peripheral increment */
+  SAMPLE_DMA->CR  |= DMA_SxCR_EN;
 
-  TIM1->CR1  = TIM_CR1_ARPE;                       /* ARR is preloaded: DMA writes apply next period */
+  TIM1->CR1  = 0U;
   TIM1->DIER = 0U;
-  TIM1->PSC  = psc;
-  TIM1->ARR  = first;
-  TIM1->CCR1 = 1U;                                 /* CC1 event early in each period fires the ARR DMA */
+  TIM1->PSC  = 0xFFFFU;                            /* never overflows between two triggers */
+  TIM1->ARR  = 0xFFFFU;
+  TIM1->SMCR = TIM_SMCR_SMS_2 | 0U;                /* reset mode, TS = ITR0 = TIM5_TRGO: each trigger
+                                                      resets the counter and raises an update event */
   TIM1->CNT  = 0U;
-  TIM1->EGR  = TIM_EGR_UG;                         /* load PSC/ARR; requests are masked (DIER=0) */
+  TIM1->EGR  = TIM_EGR_UG;
   TIM1->SR   = 0U;
-  TIM1->DIER = TIM_DIER_UDE | ((table_len != 0U) ? TIM_DIER_CC1DE : 0U);
-  TIM1->CR1  = TIM_CR1_CEN | TIM_CR1_URS | TIM_CR1_ARPE;
+  TIM1->DIER = TIM_DIER_UDE;
+  TIM1->CR1  = TIM_CR1_CEN;
+
+  TIM5->CR1 = TIM_CR1_CEN | TIM_CR1_URS | TIM_CR1_ARPE;
 
   return sump_divider;
 }
 
 void capture_stop(void)
 {
+  TIM5->CR1  = 0U;
+  TIM5->DIER = 0U;
   TIM1->CR1  = 0U;
   TIM1->DIER = 0U;
-  DMA_STREAM->CR &= ~DMA_SxCR_EN;
-  DMA_ARR_STREAM->CR &= ~DMA_SxCR_EN;
-  while (((DMA_STREAM->CR | DMA_ARR_STREAM->CR) & DMA_SxCR_EN) != 0U)
+  SAMPLE_DMA->CR &= ~DMA_SxCR_EN;
+  RELOAD_DMA->CR &= ~DMA_SxCR_EN;
+  while (((SAMPLE_DMA->CR | RELOAD_DMA->CR) & DMA_SxCR_EN) != 0U)
   {
   }
-  DMA2->HIFCR = DMA_FLAGS_CLEAR | DMA_ARR_FLAGS_CLEAR;
+  DMA2->HIFCR = SAMPLE_FLAGS;
+  DMA1->LIFCR = RELOAD_FLAGS;
 }
 
 uint32_t capture_pos(void)
 {
-  uint32_t pos = CAPTURE_RING_SIZE - DMA_STREAM->NDTR;
+  uint32_t pos = CAPTURE_RING_SIZE - SAMPLE_DMA->NDTR;
 
   return (pos >= CAPTURE_RING_SIZE) ? 0U : pos;
 }

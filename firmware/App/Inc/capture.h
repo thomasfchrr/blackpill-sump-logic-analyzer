@@ -1,8 +1,8 @@
 /**
  * @file    capture.h
- * @brief   Hardware sampling engine: TIM1 update event -> DMA2 -> SRAM ring.
+ * @brief   Hardware sampling engine: TIM5 -> TIM1 -> DMA2 -> SRAM ring, exact SUMP timebase.
  *
- * TIM1 paces the sampling. Each update event raises a DMA request; DMA2 stream 5
+ * TIM5 paces the sampling and relays each period to TIM1, whose update event raises a DMA request; DMA2 stream 5
  * (channel 6) copies the low byte of GPIOB->IDR (PB0..PB7) into a circular
  * buffer without any CPU involvement. The CPU only reads the DMA position.
  */
@@ -17,7 +17,7 @@
 #define CAPTURE_SUMP_CLOCK_HZ  100000000UL
 /** Shortest sample period the DMA pair can sustain, in SUMP clock ticks (see capture.c). */
 #ifndef CAPTURE_MIN_SUMP_PERIOD
-#define CAPTURE_MIN_SUMP_PERIOD  12U
+#define CAPTURE_MIN_SUMP_PERIOD  10U
 #endif
 
 void     capture_init(void);

@@ -11,8 +11,8 @@
 |                    |                                     |
 |  main loop --> sump.c   command parser + capture FSM     |
 |                    |                                     |
-|                capture.c  TIM1 --request--> DMA2 S5 --> SRAM ring (64 KB)
-|                           `--CC1--> DMA2 S6 --> TIM1 ARR (exact period)
+|                capture.c  TIM5 --TRGO--> TIM1 --request--> DMA2 S5 --> SRAM ring (64 KB)
+|                             ^ ARR table, DMA1 S2 (exact period)
 |                    ^                                     |
 |                testgen.c  TIM2/3/4 PWM test pattern      |
 |  led.c  status LED                                       |
@@ -29,7 +29,7 @@ between the endpoint buffers and the two rings in `usb_link.c`.
 | `Core/Src/stm32f4xx_it.c` | handlers; faults break into the debugger if attached, otherwise reset |
 | `App/Src/usb_link.c` | byte-stream transport (single-producer/single-consumer rings) |
 | `App/Src/sump.c` | SUMP parser and capture state machine |
-| `App/Src/capture.c` | TIM1 + DMA sampler, fractional-period table, ring position |
+| `App/Src/capture.c` | TIM5/TIM1 + DMA1/DMA2 sampler, fractional-period table, ring position |
 | `App/Src/testgen.c` | built-in square-wave pattern for self-test |
 | `App/Src/led.c` | LED status patterns |
 | `USB_DEVICE/` | ST CDC middleware glue (`usbd_cdc_if.c` only forwards to `usb_link`) |
@@ -39,20 +39,35 @@ interrupt file are maintained by hand, so do **not** regenerate over them.
 
 ## Sampling engine
 
-TIM1 (APB2 timer clock, 96 MHz) raises a DMA request on every update event. DMA2 stream 5, channel 6 moves
-one byte from `GPIOB->IDR` into a 65 532-byte circular buffer. The CPU is not involved per sample.
+```
+TIM5 (APB1, 32 bit)  --TRGO--> TIM1 (reset mode) --update request--> DMA2 stream 5 --> GPIOB->IDR byte -> ring
+  ^ ARR preload
+  | CC1 request -> DMA1 stream 2: reload table -> TIM5->ARR
+```
+
+DMA2 stream 5 moves one byte from `GPIOB->IDR` into a 65 532-byte circular buffer on every TIM1 update. TIM1
+is only a relay: each TRGO pulse of TIM5 resets it and raises its update event. The CPU is not involved per
+sample.
 
 **Exact timebase.** A SUMP divider means a period of `(d + 1)` ticks of 10 ns, which is `0.96 (d + 1)` timer
 cycles: almost never an integer. `capture_start()` reduces the fraction `n / den` (`den` divides 25) and
-loads TIM1 with a different reload value each period, `floor((k + 1) n / den) - floor(k n / den)`. The
-values sit in a table that DMA2 stream 6 (channel 0, TIM1_CH1 request, `CCR1 = 1`) copies into the
-preloaded `ARR` register once per period. The average period is exact, the instantaneous error is below one
-timer cycle. When `d + 1` is a multiple of 25 the table is skipped; for periods above 65 536 cycles the
-prescaler is used (error below 1e-5).
+changes TIM5's reload value every period, `floor((k + 1) n / den) - floor(k n / den)`, from a table copied
+by **DMA1** into the preloaded `ARR`. The average period is exact; the instantaneous error is below one timer
+cycle. The 32-bit TIM5 needs no prescaler, even at 10 Hz.
 
-- the shortest period is 12 SUMP ticks (8.33 MS/s). At 10 and 11 ticks the two DMA streams lose about 0.1 %
-  of the requests (measured), so `CAPTURE_MIN_SUMP_PERIOD` enforces 12. A single stream alone sustained
-  19.2 MS/s but could not follow the 100 MHz timebase.
+**Why TIM5 and DMA1.** Putting both the sampler and the reload on DMA2 (the first version) made every
+sample cost two DMA2 transfers and capped the exact rate at 8.33 MS/s. DMA1 cannot reach GPIO or APB2, but
+it can write TIM5 on APB1, so the reload moves to the otherwise idle controller and DMA2 only samples.
+
+**Landing time.** A reload request raised `K` cycles into a period reaches `ARR` about `RELOAD_LATENCY`
+(10 timer cycles, measured; the useful range is 9 to 11) later. Because that is comparable to a period,
+`capture_start()` picks `K` and a pipeline depth `q` so that the write always lands in the middle of a
+period, and the table entry `n` holds the length of period `n + q + 1`. The first few periods of a
+capture use period 0's length: a fixed offset of a few cycles at the start, with no effect on the rate.
+
+- the shortest period is 10 SUMP ticks (10 MS/s). At 9 ticks and below the reload write cannot keep up and
+  the timebase degrades (0.1 to 5 %), so `CAPTURE_MIN_SUMP_PERIOD` enforces 10. DMA2 alone sustains a
+  5-cycle period (19.2 MS/s) but cannot follow the 100 MHz timebase.
 - the ring never stops while waiting for a trigger, which provides the **pre-trigger history**.
 
 ## Capture state machine (`sump.c`)

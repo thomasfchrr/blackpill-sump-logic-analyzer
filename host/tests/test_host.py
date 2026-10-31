@@ -24,7 +24,7 @@ def test_parse_trigger():
         parse_trigger("3:bogus")
 
 
-@pytest.mark.parametrize("rate", [1e6, 2e6, 5e6, 20e3, 3.3e6, 8e6])
+@pytest.mark.parametrize("rate", [1e6, 2e6, 5e6, 20e3, 3.3e6, 10e6])
 def test_rates_follow_the_sump_clock(rate):
     # divider = 100 MHz / rate - 1, honoured exactly by the firmware (rounded to the divider grid)
     assert actual_rate(divider_for_rate(rate)) == pytest.approx(rate, rel=0.06)
@@ -32,7 +32,7 @@ def test_rates_follow_the_sump_clock(rate):
 
 
 def test_rate_is_clamped_to_the_dma_limit():
-    assert actual_rate(0) == 1e8 / 12
+    assert actual_rate(0) == 1e8 / 10
 
 
 def test_vcd_and_csv():

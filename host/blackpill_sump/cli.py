@@ -74,7 +74,7 @@ def cmd_selftest(args: argparse.Namespace) -> int:
     ok = True
     with Sump(args.port) as s:
         print(f"{s.info.name} firmware {s.info.firmware} on {s.port}")
-        for rate in (1e6, 3.3e6, 4e6, 7e6, 8.3e6):
+        for rate in (1e6, 3.3e6, 4e6, 7e6, 10e6):
             cap = s.capture(rate_hz=rate, samples=s.info.sample_memory, test_pattern=True)
             line = [f"{cap.rate_hz / 1e6:6.2f} MS/s"]
             for ch, freq in expected.items():
@@ -99,7 +99,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     sub.add_parser("info", help="show device information").set_defaults(fn=cmd_info)
 
     c = sub.add_parser("capture", help="run one acquisition")
-    c.add_argument("--rate", default="1M", help="sample rate, e.g. 500k, 10M (max 8.33M)")
+    c.add_argument("--rate", default="1M", help="sample rate, e.g. 500k, 10M (max 10M)")
     c.add_argument("--samples", type=int, default=4096, help="window size (multiple of 4)")
     c.add_argument("--post", type=int, help="samples kept after the trigger (default: half)")
     c.add_argument("--trigger", help="CH:rise|fall|high|low, e.g. 3:rise")

@@ -15,7 +15,7 @@ USB_VID = 0x0483
 USB_PID = 0x5740
 
 BASE_CLOCK_HZ = 100_000_000   # SUMP divider clock; the firmware reproduces it exactly
-MIN_PERIOD_TICKS = 12         # shortest sample period the firmware sustains without losses (8.33 MS/s)
+MIN_PERIOD_TICKS = 10        # shortest sample period sustained with an exact timebase (10 MS/s)
 
 CMD_RESET = 0x00
 CMD_ARM = 0x01
