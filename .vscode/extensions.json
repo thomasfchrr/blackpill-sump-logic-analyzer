@@ -1,10 +1,7 @@
 {
   "recommendations": [
-    "stmicroelectronics.stm32-vscode-extension",
-    "stmicroelectronics.stm32cube-ide-debug-jlink-gdbserver",
-    "stmicroelectronics.stm32cube-ide-debug-stlink-gdbserver",
     "marus25.cortex-debug",
-    "ms-vscode.cpptools",
+    "llvm-vs-code-extensions.vscode-clangd",
     "ms-python.python"
   ]
 }

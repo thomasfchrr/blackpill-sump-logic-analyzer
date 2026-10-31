@@ -2,102 +2,35 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "STM32: Build (Clean)",
+      "label": "Firmware: build",
       "type": "shell",
-      "command": "powershell",
-      "args": [
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "${workspaceFolder}/Cube_demo/USB_Test_Project/build.ps1",
-        "-Clean"
-      ],
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      },
-      "problemMatcher": [
-        "$gcc"
-      ]
+      "command": "powershell -ExecutionPolicy Bypass -File ${workspaceFolder}/tools/build.ps1",
+      "group": { "kind": "build", "isDefault": true },
+      "problemMatcher": ["$gcc"]
     },
     {
-      "label": "STM32: Build (Incremental)",
+      "label": "Firmware: build (debug)",
       "type": "shell",
-      "command": "powershell",
-      "args": [
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "${workspaceFolder}/Cube_demo/USB_Test_Project/build.ps1"
-      ],
-      "problemMatcher": [
-        "$gcc"
-      ]
+      "command": "powershell -ExecutionPolicy Bypass -File ${workspaceFolder}/tools/build.ps1 -Debug",
+      "problemMatcher": ["$gcc"]
     },
     {
-      "label": "STM32: Flash (J-Link)",
+      "label": "Firmware: build + flash (ST-LINK)",
       "type": "shell",
-      "command": "powershell",
-      "args": [
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "${workspaceFolder}/Cube_demo/USB_Test_Project/flash_jlink.ps1",
-        "-Run"
-      ],
-      "dependsOn": [
-        "STM32: Build (Incremental)"
-      ],
+      "command": "powershell -ExecutionPolicy Bypass -File ${workspaceFolder}/tools/flash.ps1 -Build",
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Host: tests + hardware self-test",
+      "type": "shell",
+      "command": "powershell -ExecutionPolicy Bypass -File ${workspaceFolder}/tools/test.ps1",
       "problemMatcher": []
     },
     {
-      "label": "Python: Local Parser Self-Test",
+      "label": "Host: open viewer",
       "type": "shell",
-      "command": "py",
-      "args": [
-        "-3",
-        "-c",
-        "import sys; sys.path.insert(0, r'${workspaceFolder}/Python_Test'); import main; main.run_local_parser_self_tests()"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "SUMP: Smoke-Test",
-      "type": "shell",
-      "command": "py",
-      "args": [
-        "-3",
-        "${workspaceFolder}/Python_Test/sump_smoke_test.py"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "USB: E2E Self-Test (Build+Flash+Host)",
-      "type": "shell",
-      "command": "powershell",
-      "args": [
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "${workspaceFolder}/run_usb_tests.ps1"
-      ],
-      "problemMatcher": []
-    },
-    {
-      "label": "USB: E2E Benchmark (Build+Flash+Host)",
-      "type": "shell",
-      "command": "powershell",
-      "args": [
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        "${workspaceFolder}/run_usb_tests.ps1",
-        "-Bench",
-        "-Duration",
-        "8",
-        "-Payload",
-        "256"
-      ],
+      "command": "python -m blackpill_sump gui",
+      "options": { "cwd": "${workspaceFolder}/host" },
       "problemMatcher": []
     }
   ]

@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blackpill-sump"
+version = "2.0.0"
+description = "Host tools for the BlackPill SUMP logic analyzer (CLI, Tk viewer, VCD export)"
+requires-python = ">=3.9"
+dependencies = ["pyserial>=3.5"]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+blackpill-sump = "blackpill_sump.cli:main"
+
+[tool.setuptools]
+packages = ["blackpill_sump"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
