@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/thomasfchrr/blackpill-sump-logic-analyzer/actions/workflows/ci.yml/badge.svg)](https://github.com/thomasfchrr/blackpill-sump-logic-analyzer/actions/workflows/ci.yml)
 
-8-channel USB logic analyzer on an **STM32F411 BlackPill**, speaking the SUMP / OpenBench Logic Sniffer
+8-channel USB logic analyzer on a **WeAct Studio BlackPill** (STM32F411CEU6), speaking the SUMP / OpenBench Logic Sniffer
 protocol so it is meant to work with **PulseView / sigrok** (driver `ols`). The sampler is fully
 hardware-driven (TIM1 + DMA), the firmware is non-blocking, and a Python CLI / viewer is included.
 
@@ -13,6 +13,7 @@ hardware-driven (TIM1 + DMA), the firmware is non-blocking, and a Python CLI / v
 
 | | |
 |---|---|
+| Board | WeAct Studio BlackPill |
 | MCU | STM32F411CEU6, Cortex-M4F @ 96 MHz (HSE 25 MHz + PLL), USB full-speed 48 MHz |
 | Channels | 8: `CH0..CH7` = `PB0..PB7`, 3.3 V logic |
 | Max sample rate | **10 MS/s** (period 10 x 10 ns), exact SUMP timebase, no lost samples (verified, see below) |
@@ -80,6 +81,9 @@ Compatibility with sigrok (PulseView 0.5.0-git and sigrok-cli 0.8.0-git, driver 
 
 - the probes are wired straight to the MCU: 3.3 V only, no protection or adjustable threshold ([docs/HARDWARE.md](docs/HARDWARE.md))
 - 10 MS/s maximum with an exact timebase, 61 440 samples, 8 channels
+- the depth does not grow when fewer channels are used: the 61 440 samples are the same with 1 or 8 channels enabled.
+  Packing 1 bit per sample would give up to 8x more samples for a single pin, but SUMP can only disable channels
+  in groups of 8, so the device cannot know which pins are unused; not implemented
 - in PulseView only level triggers are available (the `ols` driver); edge triggers need the Python tools
 - the DMA reload latency is measured at every boot (about 2 ms) and the timebase was validated on one board
 
