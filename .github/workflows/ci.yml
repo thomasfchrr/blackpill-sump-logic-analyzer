@@ -30,8 +30,7 @@ jobs:
         run: |
           # The default Azure mirror can hang; fail fast and retry on the main archive instead.
           APT="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
-          printf 'http://archive.ubuntu.com/ubuntu/	priority:1
-' | sudo tee /etc/apt/apt-mirrors.txt
+          printf 'http://archive.ubuntu.com/ubuntu/\tpriority:1\n' | sudo tee /etc/apt/apt-mirrors.txt
           sudo apt-get $APT update
           sudo apt-get $APT install -y --no-install-recommends clang lld cmake ninja-build gcc-arm-none-eabi libnewlib-arm-none-eabi binutils-arm-none-eabi
       - name: Build
