@@ -9,6 +9,7 @@ on:
 jobs:
   host:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -22,12 +23,16 @@ jobs:
 
   firmware:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Toolchain (Clang + LLD, newlib-nano from the Arm GNU bundle)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends clang lld cmake ninja-build gcc-arm-none-eabi libnewlib-arm-none-eabi binutils-arm-none-eabi
+          # The default Azure mirror can hang; fail fast and retry on the main archive instead.
+          APT="-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          echo "http://archive.ubuntu.com/ubuntu/ priority:1" | sudo tee /etc/apt/apt-mirrors.txt
+          sudo apt-get $APT update
+          sudo apt-get $APT install -y --no-install-recommends clang lld cmake ninja-build gcc-arm-none-eabi libnewlib-arm-none-eabi binutils-arm-none-eabi
       - name: Build
         run: |
           cmake -S firmware -B firmware/build -G Ninja
